@@ -27,6 +27,57 @@ defmodule Yesql do
     end
   end
 
+  defmacro defqueries(file_path, opts \\ []) do
+    drivers = @supported_drivers
+
+    quote bind_quoted: binding() do
+      name = file_path |> Path.basename(".sql") |> String.to_atom()
+      driver = opts[:driver] || @yesql_private__driver || raise(NoDriver, name)
+      unless driver in drivers, do: raise(UnknownDriver, driver)
+
+      conn = opts[:conn] || @yesql_private__conn
+
+      {:ok, blocks} =
+        file_path
+        |> File.read!()
+        |> Yesql.parse_many()
+
+      Enum.each(blocks, fn %{
+                             name: name,
+                             description: desc,
+                             param_spec: param_spec,
+                             tokenized_sql: sql
+                           } ->
+        # doc = [unquote(name), "args: " <> unquote(param_spec), unquote(desc)] |> Enum.join("\n")
+
+        @doc """
+        unquote(name)
+        Documentation for fn/1
+        """
+        def unquote(name)(conn, args) do
+          Yesql.exec(conn, unquote(driver), unquote(sql), unquote(param_spec), args)
+        end
+
+        if conn do
+          # Module.put_attribute(module, :doc, """
+          # unquote(name)/1:
+          # args: unquote(param_spec)
+          # unquote(desc)
+          # """)
+
+          # @doc [unquote(name), "args: " <> unquote(param_spec), unquote(desc)] |> Enum.join("\n")
+          @doc """
+          unquote(name)
+          Documentation for fn/1
+          """
+          def unquote(name)(args) do
+            Yesql.exec(unquote(conn), unquote(driver), unquote(sql), unquote(param_spec), args)
+          end
+        end
+      end)
+    end
+  end
+
   defmacro defquery(file_path, opts \\ []) do
     drivers = @supported_drivers
 
@@ -62,6 +113,77 @@ defmodule Yesql do
 
       {:ok, sql, params}
     end
+  end
+
+  @doc false
+  def parse_many(sql) do
+    parsed_blocks =
+      sql
+      |> split_to_blocks()
+      |> Enum.map(&parse_block/1)
+
+    result =
+      parsed_blocks
+      |> Enum.map(fn x ->
+        sql = Map.get(x, :sql)
+        {:ok, tokenized_sql, args} = parse(sql)
+
+        x
+        |> Map.put(:tokenized_sql, tokenized_sql)
+        |> Map.put(:param_spec, args)
+      end)
+
+    {:ok, result}
+  end
+
+  def ensure_trailing(s, char) do
+    cond do
+      String.ends_with?(s, char) -> s
+      true -> s |> Kernel.<>(char)
+    end
+  end
+
+  def join_with_trailing(enum, char) do
+    enum |> Enum.join(char) |> ensure_trailing("\n")
+  end
+
+  def parse_block(block) do
+    {h, tail} =
+      block
+      |> String.split("\n")
+      |> Enum.split_while(&String.starts_with?(&1, "--"))
+
+    {name, description} =
+      case h do
+        [name] -> {name, []}
+        [name | rest] -> {name, rest}
+      end
+
+    name =
+      name
+      |> String.split(":")
+      |> List.last()
+      |> String.trim()
+      |> String.replace(~r/[^a-zA-Z0-9_]/, "_")
+      # Safety check to make sure it's valid atom and thus likely a valid fn
+      |> String.to_atom()
+
+    description =
+      description
+      |> Enum.map(&String.trim_leading(&1, "--"))
+      |> Enum.map(&String.trim/1)
+      |> Enum.join("\n")
+
+    %{name: name, description: description, sql: tail |> join_with_trailing("\n")}
+  end
+
+  def split_to_blocks(sql) do
+    # Parse many expression
+    Regex.split(~r/-- name:/, sql)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&("-- name: " <> &1))
+    |> Enum.map(fn x -> ensure_trailing(x, "\n") end)
   end
 
   defp extract_param({:named_param, param}, {i, sql, params}) do
