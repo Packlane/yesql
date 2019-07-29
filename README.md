@@ -39,6 +39,36 @@ iex> Query.users_by_country(country_code: "gbr")
 {:ok, [%{name: "Louis", country_code: "gbr"}]}
 ```
 
+Alternatively, provide multiple queries inside a file in the following format:
+
+``` sql
+-- name: select_older_cats
+-- Important to find old cats
+SELECT * FROM cats
+WHERE age > :age
+ORDER BY age ASC
+
+-- name:insert_cat
+INSERT INTO cats (age)
+VALUES (:age)
+```
+
+Each section begins with a name declaration, followed by optional documentation
+that will be compiled into the function docs
+
+``` elixir
+defmodule QueryMany do
+  use Yesql, driver: Postgrex, conn: MyApp.ConnectionPool
+
+  Yesql.defqueries("some/where/feline_queries.sql")
+end
+
+# A function with the name `insert_cat/1` has been created.
+# Let's use it:
+iex> Query.select_older_cat(age: 14)
+{:ok, [%{name: "Felix", age: 15}]}
+```
+
 By keeping the SQL and Elixir separate you get:
 
 - No syntactic surprises. Your database doesn't stick to the SQL
