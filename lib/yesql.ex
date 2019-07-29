@@ -39,15 +39,27 @@ defmodule Yesql do
     """
   end
 
+  def get_name(file_path) do
+    file_path |> Path.basename(".sql") |> String.to_atom()
+  end
+
+  def get_driver(opts, private_driver, drivers, name) do
+    driver = opts[:driver] || private_driver || raise(NoDriver, name)
+    unless driver in drivers, do: raise(UnknownDriver, driver)
+    driver
+  end
+
+  def get_conn(opts, private_conn) do
+    opts[:conn] || private_conn
+  end
+
   defmacro defqueries(file_path, opts \\ []) do
     drivers = @supported_drivers
 
     quote bind_quoted: binding() do
-      name = file_path |> Path.basename(".sql") |> String.to_atom()
-      driver = opts[:driver] || @yesql_private__driver || raise(NoDriver, name)
-      unless driver in drivers, do: raise(UnknownDriver, driver)
-
-      conn = opts[:conn] || @yesql_private__conn
+      name = Yesql.get_name(file_path)
+      driver = Yesql.get_driver(opts, @yesql_private__driver, drivers, name)
+      conn = Yesql.get_conn(opts, @yesql_private__conn)
 
       {:ok, blocks} =
         file_path
@@ -95,18 +107,39 @@ defmodule Yesql do
     drivers = @supported_drivers
 
     quote bind_quoted: binding() do
-      name = file_path |> Path.basename(".sql") |> String.to_atom()
-      driver = opts[:driver] || @yesql_private__driver || raise(NoDriver, name)
-      conn = opts[:conn] || @yesql_private__conn
+      name = Yesql.get_name(file_path)
+      driver = Yesql.get_driver(opts, @yesql_private__driver, drivers, name)
+      conn = Yesql.get_conn(opts, @yesql_private__conn)
+
       {:ok, sql, param_spec} = file_path |> File.read!() |> Yesql.parse()
 
-      unless driver in drivers, do: raise(UnknownDriver, driver)
+      {raw_desc, _} = sql |> String.split("\n") |> Enum.split_while(&Yesql.is_comment/1)
+
+      desc = Yesql.sanitize_description(raw_desc)
+
+      Module.put_attribute(
+        __MODULE__,
+        :doc,
+        {__ENV__.line,
+         quote do
+           unquote(Yesql.generate_documentation(name, "2", param_spec, desc, file_path))
+         end}
+      )
 
       def unquote(name)(conn, args) do
         Yesql.exec(conn, unquote(driver), unquote(sql), unquote(param_spec), args)
       end
 
       if conn do
+        Module.put_attribute(
+          __MODULE__,
+          :doc,
+          {__ENV__.line,
+           quote do
+             unquote(Yesql.generate_documentation(name, "1", param_spec, desc, file_path))
+           end}
+        )
+
         def unquote(name)(args) do
           Yesql.exec(unquote(conn), unquote(driver), unquote(sql), unquote(param_spec), args)
         end
@@ -149,6 +182,10 @@ defmodule Yesql do
     {:ok, result}
   end
 
+  def is_comment(s) do
+    String.starts_with?(s, "--")
+  end
+
   def ensure_trailing(s, char) do
     cond do
       String.ends_with?(s, char) -> s
@@ -164,7 +201,7 @@ defmodule Yesql do
     {h, tail} =
       block
       |> String.split("\n")
-      |> Enum.split_while(&String.starts_with?(&1, "--"))
+      |> Enum.split_while(&is_comment/1)
 
     {name, description} =
       case h do
@@ -181,15 +218,19 @@ defmodule Yesql do
       # Safety check to make sure it's valid atom and thus likely a valid fn
       |> String.to_atom()
 
-    description =
-      description
-      |> Enum.map(&String.trim_leading(&1, "--"))
-      |> Enum.map(&String.trim/1)
-      |> Enum.join("\n")
+    description = sanitize_description(description)
 
     %{name: name, description: description, sql: tail |> join_with_trailing("\n")}
   end
 
+  def sanitize_description(description) when is_list(description) do
+    description
+    |> Enum.map(&String.trim_leading(&1, "--"))
+    |> Enum.map(&String.trim/1)
+    |> Enum.join("\n")
+  end
+
+  # TODO: refactor this to be cleaner, seems like a hacky implementation
   def split_to_blocks(sql) do
     # Parse many expression
     Regex.split(~r/-- name:/, sql)
