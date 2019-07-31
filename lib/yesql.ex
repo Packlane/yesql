@@ -77,6 +77,27 @@ defmodule Yesql do
           :doc,
           {__ENV__.line,
            quote do
+             unquote(
+               Yesql.generate_documentation(
+                 name,
+                 "3",
+                 [param_spec, [timeout: 5000]],
+                 desc,
+                 file_path
+               )
+             )
+           end}
+        )
+
+        def unquote(:"#{name}_with_opts")(conn, args, opts) do
+          Yesql.exec(conn, unquote(driver), unquote(sql), unquote(param_spec), args, opts)
+        end
+
+        Module.put_attribute(
+          __MODULE__,
+          :doc,
+          {__ENV__.line,
+           quote do
              unquote(Yesql.generate_documentation(name, "2", param_spec, desc, file_path))
            end}
         )
@@ -91,12 +112,53 @@ defmodule Yesql do
             :doc,
             {__ENV__.line,
              quote do
+               unquote(
+                 Yesql.generate_documentation(
+                   name,
+                   "2",
+                   [param_spec, [timeout: 5000]],
+                   desc,
+                   file_path
+                 )
+               )
+             end}
+          )
+
+          def unquote(:"#{name}_with_opts")(args, opts) do
+            Yesql.exec(
+              unquote(conn),
+              unquote(driver),
+              unquote(sql),
+              unquote(param_spec),
+              args,
+              opts
+            )
+          end
+
+          Module.put_attribute(
+            __MODULE__,
+            :doc,
+            {__ENV__.line,
+             quote do
                unquote(Yesql.generate_documentation(name, "1", param_spec, desc, file_path))
              end}
           )
 
           def unquote(name)(args) do
             Yesql.exec(unquote(conn), unquote(driver), unquote(sql), unquote(param_spec), args)
+          end
+
+          Module.put_attribute(
+            __MODULE__,
+            :doc,
+            {__ENV__.line,
+             quote do
+               unquote(Yesql.generate_documentation(name, "0", [], desc, file_path))
+             end}
+          )
+
+          def unquote(name)() do
+            Yesql.exec(unquote(conn), unquote(driver), unquote(sql), unquote(param_spec), [])
           end
         end
       end)
@@ -255,10 +317,10 @@ defmodule Yesql do
   end
 
   @doc false
-  def exec(conn, driver, sql, param_spec, data) do
+  def exec(conn, driver, sql, param_spec, data, opts \\ []) do
     param_list = Enum.map(param_spec, &fetch_param(data, &1))
 
-    with {:ok, result} <- exec_for_driver(conn, driver, sql, param_list) do
+    with {:ok, result} <- exec_for_driver(conn, driver, sql, param_list, opts) do
       format_result(result)
     end
   end
@@ -274,18 +336,18 @@ defmodule Yesql do
   defp dict_fetch(dict, key) when is_list(dict), do: Keyword.fetch(dict, key)
 
   if Code.ensure_compiled?(Postgrex) do
-    defp exec_for_driver(conn, Postgrex, sql, param_list) do
-      Postgrex.query(conn, sql, param_list)
+    defp exec_for_driver(conn, Postgrex, sql, param_list, opts) do
+      Postgrex.query(conn, sql, param_list, opts)
     end
   end
 
   if Code.ensure_compiled?(Ecto) do
-    defp exec_for_driver(repo, Ecto, sql, param_list) do
-      Ecto.Adapters.SQL.query(repo, sql, param_list)
+    defp exec_for_driver(repo, Ecto, sql, param_list, opts) do
+      Ecto.Adapters.SQL.query(repo, sql, param_list, opts)
     end
   end
 
-  defp exec_for_driver(_, driver, _, _) do
+  defp exec_for_driver(_, driver, _, _, _) do
     raise UnknownDriver.exception(driver)
   end
 
