@@ -17,6 +17,8 @@ features altogether.
 So what's the solution? Keep the SQL as SQL. Have one file with your
 query:
 
+## Usage
+
 ``` sql
 SELECT *
 FROM users
@@ -68,6 +70,12 @@ end
 iex> Query.select_older_cat(age: 14)
 {:ok, [%{name: "Felix", age: 15}]}
 ```
+
+Documentation is compiled into the macro-generated functions to assist in library
+usage. Any SQL comments between the name declaration and the start of a SQL
+block will be treated as documentation and compiled into the resulting Elixir.
+
+### Benefits
 
 By keeping the SQL and Elixir separate you get:
 
