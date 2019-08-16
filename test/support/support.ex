@@ -2,14 +2,6 @@ defmodule YesqlTest.Application do
   use Application
 
   def start(_type, _args) do
-    # :ok =
-    #   :telemetry.attach(
-    #     "yesql-test-handler",
-    #     [:yesql_test, :repo, :query],
-    #     &YesqlTest.Telemetry.handle_event/4,
-    #     %{}
-    #   )
-
     Application.ensure_all_started(:ecto)
     Application.ensure_all_started(:ecto_sql)
     Application.ensure_all_started(:postgrex)
