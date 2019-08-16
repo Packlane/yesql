@@ -248,18 +248,27 @@ defmodule Yesql do
     {:ok, result}
   end
 
+  @doc false
+  def exec(conn, driver, sql, param_spec, data, opts \\ []) do
+    param_list = Enum.map(param_spec, &fetch_param(data, &1))
+
+    with {:ok, result} <- exec_for_driver(conn, driver, sql, param_list, opts) do
+      format_result(result)
+    end
+  end
+
   def is_comment(s) do
     String.starts_with?(s, "--")
   end
 
-  def ensure_trailing(s, char) do
+  defp ensure_trailing(s, char) do
     cond do
       String.ends_with?(s, char) -> s
       true -> s |> Kernel.<>(char)
     end
   end
 
-  def join_with_trailing(enum, char) do
+  defp join_with_trailing(enum, char) do
     enum |> Enum.join(char) |> ensure_trailing("\n")
   end
 
@@ -296,7 +305,7 @@ defmodule Yesql do
     |> Enum.join("\n")
   end
 
-  # TODO: refactor this to be cleaner, seems like a hacky implementation
+  # TODO: refactor to use tokenizer
   def split_to_blocks(sql) do
     # Parse many expression
     Regex.split(~r/-- name:/, sql)
@@ -318,15 +327,6 @@ defmodule Yesql do
 
   defp extract_param({:fragment, fragment}, {i, sql, params}) do
     {i, [sql, fragment], params}
-  end
-
-  @doc false
-  def exec(conn, driver, sql, param_spec, data, opts \\ []) do
-    param_list = Enum.map(param_spec, &fetch_param(data, &1))
-
-    with {:ok, result} <- exec_for_driver(conn, driver, sql, param_list, opts) do
-      format_result(result)
-    end
   end
 
   defp fetch_param(data, key) do
