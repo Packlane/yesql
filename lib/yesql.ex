@@ -57,6 +57,8 @@ defmodule Yesql do
     drivers = @supported_drivers
 
     quote bind_quoted: binding() do
+      @external_resource file_path
+
       name = Yesql.get_name(file_path)
       driver = Yesql.get_driver(opts, @yesql_private__driver, drivers, name)
       conn = Yesql.get_conn(opts, @yesql_private__conn)
@@ -169,6 +171,8 @@ defmodule Yesql do
     drivers = @supported_drivers
 
     quote bind_quoted: binding() do
+      @external_resource file_path
+
       name = Yesql.get_name(file_path)
       driver = Yesql.get_driver(opts, @yesql_private__driver, drivers, name)
       conn = Yesql.get_conn(opts, @yesql_private__conn)
